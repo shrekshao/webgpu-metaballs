@@ -214,17 +214,11 @@ fn snoise_grad(v : vec3<f32>) -> vec4<f32>
 }
 `;
 
+// testing snoise function
 export const NoiseDensityComputeSource = `
 
 ${NoiseComputeSource}
 
-
-  struct Metaball {
-    position: vec3<f32>;
-    radius: f32;
-    strength: f32;
-    subtract: f32;
-  };
 
 
   ${IsosurfaceVolume}
@@ -242,5 +236,92 @@ ${NoiseComputeSource}
                     (global_id.z * volume.size.x * volume.size.y);
 
     volume.values[valueIndex] = snoise(position);
+  }
+`;
+
+export const NoiseDensityTerrainComputeSource = `
+
+${NoiseComputeSource}
+
+  ${IsosurfaceVolume}
+  [[group(0), binding(0)]] var<storage, read_write> volume : IsosurfaceVolume;
+
+// Noise settings
+
+[[block]] struct TerrainConfig {
+    octaves: i32;
+
+    lacunarity: f32;
+    persistence: f32;
+    noiseScale: f32;
+    noiseWeight: f32;
+
+    floorOffset: f32;
+    weightMultiplier: f32;
+    hardFloor: f32;
+    hardFloorWeight: f32;
+
+    
+    // closeEdges: bool;
+};
+[[group(0), binding(1)]] var<uniform> config : TerrainConfig;
+
+[[block]] struct MeshConfig {
+    // From density.compute
+    offset: vec3<f32>;
+    spacing: f32;
+
+    // 4, 5, 6
+    offsets: vec3<f32>;
+    pad1: f32;
+
+    // 8, 9, 10
+    worldSize: vec3<f32>;
+    pad2: f32;
+};
+[[group(0), binding(2)]] var<uniform> meshConfig : MeshConfig;
+
+  fn positionAt(index : vec3<u32>) -> vec3<f32> {
+    return volume.min + (volume.step * vec3<f32>(index.xyz));
+  }
+
+  [[stage(compute), workgroup_size(${WORKGROUP_SIZE[0]}, ${WORKGROUP_SIZE[1]}, ${WORKGROUP_SIZE[2]})]]
+  fn computeMain([[builtin(global_invocation_id)]] global_id : vec3<u32>) {
+    let pos = positionAt(global_id);
+    let valueIndex = global_id.x +
+                    (global_id.y * volume.size.x) +
+                    (global_id.z * volume.size.x * volume.size.y);
+
+    var offsetNoise = 0.0;
+    var noise = 0.0;
+
+    var frequency = config.noiseScale / 100.0;
+    var amplitude = 1.0;
+    var weight = 1.0;
+    for (var j = 0; j < config.octaves; j = j + 1) {
+        let n = snoise((pos+offsetNoise) * frequency + meshConfig.offsets[j] + meshConfig.offset);
+        var v = 1.0 - abs(n);
+        v = v*v;
+        v = v*weight;
+        weight = max(min(v * config.weightMultiplier, 1.0), 0.0);
+        noise = noise + v * amplitude;
+        amplitude = amplitude * config.persistence;
+        frequency = frequency * config.lacunarity;
+    }
+
+    // var finalVal = -(pos.y + config.floorOffset) + noise * config.noiseWeight + (pos.y%params.x) * params.y;
+    var finalVal = -(pos.y + config.floorOffset) + noise * config.noiseWeight;
+
+    if (pos.y < config.hardFloor) {
+        finalVal = finalVal + config.hardFloorWeight;
+    }
+
+    // if (config.closeEdges) {
+        let edgeOffset = abs(pos * 2.0) - meshConfig.worldSize + meshConfig.spacing * 0.5;
+        let edgeWeight = clamp(sign(max(max(edgeOffset.x,edgeOffset.y),edgeOffset.z)), 0.0, 1.0);
+        finalVal = finalVal * (1.0 - edgeWeight) - 100.0 * edgeWeight;
+    // }
+
+    volume.values[valueIndex] = finalVal;
   }
 `;

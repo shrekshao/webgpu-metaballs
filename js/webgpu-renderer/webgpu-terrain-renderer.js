@@ -26,6 +26,7 @@ import {
 
 import {
   NoiseDensityComputeSource,
+  NoiseDensityTerrainComputeSource,
 } from './shaders/noise-density.js';
 
 import {
@@ -261,25 +262,107 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
     });
 
     // Create compute pipeline that handles the metaball isosurface.
-    const metaballModule = this.device.createShaderModule({
+    const terrainModule = this.device.createShaderModule({
       label: 'Metaball Isosurface Compute Shader',
       // code: MetaballFieldComputeSource
-      code: NoiseDensityComputeSource
+      // code: NoiseDensityComputeSource
+      code: NoiseDensityTerrainComputeSource
     });
+
+    this.noiseSettings = {
+      numOctaves: 6,
+
+      lacunarity: 2.0,
+
+      persistence: 0.52,
+      noiseScale: 2.99,
+      noiseWeight: 6.09,
+      floorOffset: 5.19,
+
+      weightMultiplier: 3.61,
+      hardFloor: -2.84,
+      hardFloorWeight: 3.05,
+    };
+
+    this.configUniformBuffer = (() => {
+      const buffer = this.device.createBuffer({
+        size: Float32Array.BYTES_PER_ELEMENT * 12,
+        mappedAtCreation: true,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      // new Float32Array(buffer.getMappedRange())[0] = settings.numLights;
+
+      const configBufferMappedArray = buffer.getMappedRange();
+      this.fillConfigBuffer(this.noiseSettings, configBufferMappedArray);
+
+      
+      buffer.unmap();
+      return buffer;
+    })();
+
+    this.offsetsBuffer = (() => {
+      const buffer = this.device.createBuffer({
+        size: Float32Array.BYTES_PER_ELEMENT * 12,
+        mappedAtCreation: true,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      const configF32 = new Float32Array(buffer.getMappedRange());
+
+      // offset
+      configF32[0] = 0;
+      configF32[1] = 0;
+      configF32[2] = 0;
+
+      // spacing
+      configF32[3] = volume.xStep;     // assume xStep, yStep, zStep is same
+
+      // offsets x, y, z
+      // const offsetRange = 1000;
+      const offsetRange = 1;
+      configF32[4] = offsetRange * (Math.random() * 2 - 1);
+      configF32[5] = offsetRange * (Math.random() * 2 - 1);
+      configF32[6] = offsetRange * (Math.random() * 2 - 1);
+
+
+      // worldSize x, y, z
+      configF32[8] = volume.xMax - volume.xMin;
+      configF32[9] = volume.yMax - volume.yMin;
+      configF32[10] = volume.zMax - volume.zMin;
+
+      console.log(configF32);
+
+      buffer.unmap();
+      return buffer;
+    })();
 
     this.device.createComputePipelineAsync({
       label: 'Metaball Isosurface Compute Pipeline',
-      compute: { module: metaballModule, entryPoint: 'computeMain' }
+      compute: { module: terrainModule, entryPoint: 'computeMain' }
     }).then((pipeline) => {
-      this.metaballComputePipeline = pipeline;
-      this.metaballComputeBindGroup = this.device.createBindGroup({
-        layout: this.metaballComputePipeline.getBindGroupLayout(0),
-        entries: [{
-          binding: 0,
-          resource: {
-            buffer: this.volumeBuffer,
+      this.terrainComputePipeline = pipeline;
+      this.terrainComputeBindGroup = this.device.createBindGroup({
+        layout: this.terrainComputePipeline.getBindGroupLayout(0),
+        entries: [
+          {
+            binding: 0,
+            resource: {
+              buffer: this.volumeBuffer,
+            },
           },
-        }],
+          {
+            binding: 1,
+            resource: {
+              buffer: this.configUniformBuffer,
+            },
+          },
+          {
+            binding: 2,
+            resource: {
+              buffer: this.offsetsBuffer,
+            },
+          },
+        ],
       });
     });
 
@@ -337,6 +420,36 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
     this.device.queue.writeBuffer(this.indirectBuffer, 0, this.indirectArray);
   }
 
+  fillConfigBuffer(settings, arrayBuffer) {
+    const configF32 = new Float32Array(arrayBuffer, 4);
+    const configOctaves = new Int32Array(arrayBuffer, 0, 1);
+
+    configOctaves[0] = settings.numOctaves;
+
+    configF32[0] = settings.lacunarity;
+    configF32[1] = settings.persistence;
+    configF32[2] = settings.noiseScale;
+    configF32[3] = settings.noiseWeight;
+
+    configF32[4] = settings.floorOffset;
+    configF32[5] = settings.weightMultiplier;
+    configF32[6] = settings.hardFloor;
+    configF32[7] = settings.hardFloorWeight;
+  }
+
+
+  updateNoiseSettings(settings) {
+    const b = new ArrayBuffer(Float32Array.BYTES_PER_ELEMENT * 12);
+    this.noiseSettings = settings;  // temp hack
+    this.fillConfigBuffer(settings, b);
+
+    this.device.queue.writeBuffer(
+      this.configUniformBuffer,
+      0,
+      b
+    );
+  }
+
   update(marchingCubes) {
     // Update the volume buffer with the latest isosurface values.
     //this.device.queue.writeBuffer(this.volumeBuffer, 64, marchingCubes.volume.values, 0, this.volumeElements);
@@ -351,9 +464,9 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
       this.volume.depth / WORKGROUP_SIZE[2]
     ];
 
-    if (this.metaballComputePipeline) {
-      passEncoder.setPipeline(this.metaballComputePipeline);
-      passEncoder.setBindGroup(0, this.metaballComputeBindGroup);
+    if (this.terrainComputePipeline) {
+      passEncoder.setPipeline(this.terrainComputePipeline);
+      passEncoder.setBindGroup(0, this.terrainComputeBindGroup);
       passEncoder.dispatch(...dispatchSize);
     }
 
