@@ -26,7 +26,7 @@ import {
 
 export const WORKGROUP_SIZE = [4, 4, 4];
 
-const IsosurfaceVolume = `
+export const IsosurfaceVolume = `
   [[block]] struct IsosurfaceVolume {
     min: vec3<f32>;
     max: vec3<f32>;

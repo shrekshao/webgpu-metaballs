@@ -23,6 +23,11 @@ import {
   MetaballFragmentPointSource,
   WORKGROUP_SIZE
 } from './shaders/metaball.js';
+
+import {
+  NoiseDensityComputeSource,
+} from './shaders/noise-density.js';
+
 import {
   MarchingCubesEdgeTable,
   MarchingCubesTriTable,
@@ -31,7 +36,7 @@ import {
 const MAX_METABALLS = 32;
 
 // Common assets used by every variant of the Metaball renderer
-class WebGPUMetaballRendererBase {
+class WebGPUTerrainRendererBase {
   constructor(renderer, volume, createBuffers=true) {
     this.renderer = renderer;
     this.device = renderer.device;
@@ -134,356 +139,6 @@ class WebGPUMetaballRendererBase {
   }
 }
 
-//
-// writeBuffer()
-//
-
-/**
- * This path uses queue.writeBuffer() to update the vertex and index buffers every frame.
- * writeBuffer() is a convenice function that copies from an ArrayBuffer into a GPUBuffer in
- * whatever way the user agent deems best. In many scenarios this can be one of the most efficent
- * routes.
- * 
- * Advantages:
- *  - Lowest overall complexity.
- *  - If your data is already in an ArrayBuffer, this will handle the copy for you.
- *  - Potentially best for WASM apps, which need to perform an additional copy from the WASM heap
- *    when using mapped buffers anyway.
- *  - Avoids the need to set the contents of a mapped buffer's array to zero before returning it.
- *  - Allows the user agent to pick an optimal pattern for uploading the data to the GPU.
- * 
- * Disadvantages:
- *  - Requires a CPU-side copy
- *  - Requires a GPU-side copy
- *  - TODO
- */
-export class MetaballWriteBuffer extends WebGPUMetaballRendererBase {
-  constructor(renderer, volume) {
-    super(renderer, volume);
-
-    this.vertexBufferElements = this.vertexBufferSize / Float32Array.BYTES_PER_ELEMENT;
-    this.indexBufferElements = this.indexBufferSize / Uint32Array.BYTES_PER_ELEMENT
-
-    this.vertexArray = new Float32Array(this.vertexBufferElements);
-    this.normalArray = new Float32Array(this.vertexBufferElements);
-    this.indexArray = new Uint32Array(this.indexBufferElements);
-  }
-
-  async update(marchingCubes) {
-    this.indexCount = marchingCubes.generateMesh({
-      positions: this.vertexArray,
-      normals:   this.normalArray,
-      indices:   this.indexArray
-    });
-
-    this.device.queue.writeBuffer(this.vertexBuffer, 0, this.vertexArray, 0, this.vertexBufferElements);
-    this.device.queue.writeBuffer(this.normalBuffer, 0, this.normalArray, 0, this.vertexBufferElements);
-    this.device.queue.writeBuffer(this.indexBuffer, 0, this.indexArray, 0, this.indexBufferElements);
-  }
-}
-
-//
-// Created a new buffer that is mappedAtCreation each time.
-//
-
-/**
- * This path creates a new set of buffers each time the data needs to be updated with
- * mappedAtCreation set to true. This allows the buffer's data to immediately be populated, even
- * for buffers that don't have MAP or COPY usage specified. However, this method only allows the
- * buffer's data to be set once, and if the data is changed either a new buffer will need to be
- * created or one of the other techniques, in conjunction with the appropriate usage flags, will
- * need to be used to update the buffer. As such this technique is good for buffers that will never
- * change or changes very infrequently.
- * 
- * Advantages:
- *  - Can set the buffer data immediately.
- *  - No specific usage flags required.
- *  - Data can be written directly into the mapped buffer, avoiding a CPU-side copy in some cases.
- * 
- * Disadvantages:
- *  - Only works for newly created buffers.
- *  - If buffer data changes frequently results in lots of buffer creation and destruction.
- *  - User agent must zero out the buffer when it's mapped.
- *  - If data is already in an ArrayBuffer, requires another CPU-side copy.
- *  - Requires a GPU-side copy
- */
-export class MetaballNewBuffer extends WebGPUMetaballRendererBase {
-  constructor(renderer, volume) {
-    super(renderer, volume, false);
-  }
-
-  async update(marchingCubes) {
-    const newVertexBuffer = this.device.createBuffer({
-      size: this.vertexBufferSize,
-      usage: GPUBufferUsage.VERTEX,
-      mappedAtCreation: true,
-    });
-
-    const newNormalBuffer = this.device.createBuffer({
-      size: this.vertexBufferSize,
-      usage: GPUBufferUsage.VERTEX,
-      mappedAtCreation: true,
-    });
-
-    const newIndexBuffer = this.device.createBuffer({
-      size: this.indexBufferSize,
-      usage: GPUBufferUsage.INDEX,
-      mappedAtCreation: true,
-    });
-
-    this.indexCount = marchingCubes.generateMesh({
-      positions: new Float32Array(newVertexBuffer.getMappedRange()),
-      normals:   new Float32Array(newNormalBuffer.getMappedRange()),
-      indices:   new Uint32Array(newIndexBuffer.getMappedRange())
-    });
-
-    newVertexBuffer.unmap();
-    newNormalBuffer.unmap();
-    newIndexBuffer.unmap();
-
-    if (this.vertexBuffer) {
-      this.vertexBuffer.destroy();
-      this.normalBuffer.destroy();
-      this.indexBuffer.destroy();
-    }
-
-    this.vertexBuffer = newVertexBuffer;
-    this.normalBuffer = newNormalBuffer;
-    this.indexBuffer = newIndexBuffer;
-  }
-}
-
-//
-// Created a new staging buffer that is mappedAtCreation each time.
-//
-
-/**
- * This path is similar to the previous one, but uses a single set of vertex/index buffers and 
- * creates a new set of staging buffers with mappedAtCreation set to true to copy from each time the
- * data needs to be updated. This allows the staging buffer's data to immediately be populated,
- * though the data still needs to be copied from the staging buffer into the vertex/index buffers
- * once the staging buffer is unmapped. This method only uses each staging buffer once, and if the
- * data is changed a new staging buffer is created. As such this technique is best for buffers that
- * changes infrequently.
- * 
- * Advantages:
- *  - Can set the buffer data immediately.
- *  - Data can be written directly into the mapped buffer, avoiding a CPU-side copy in some cases.
- * 
- * Disadvantages:
- *  - If buffer data changes frequently results in lots of staging buffer creation and destruction.
- *  - User agent must zero out the staging buffer when it's mapped.
- *  - If data is already in an ArrayBuffer, requires another CPU-side copy.
- *  - Requires a GPU-side copy
- */
-export class MetaballNewStagingBuffer extends WebGPUMetaballRendererBase {
-  async update(marchingCubes) {
-    const vertexStagingBuffer = this.device.createBuffer({
-      size: this.vertexBufferSize,
-      usage: GPUBufferUsage.COPY_SRC,
-      mappedAtCreation: true,
-    });
-
-    const normalStagingBuffer = this.device.createBuffer({
-      size: this.vertexBufferSize,
-      usage: GPUBufferUsage.COPY_SRC,
-      mappedAtCreation: true,
-    });
-
-    const indexStagingBuffer = this.device.createBuffer({
-      size: this.indexBufferSize,
-      usage: GPUBufferUsage.COPY_SRC,
-      mappedAtCreation: true,
-    });
-
-    this.indexCount = marchingCubes.generateMesh({
-      positions: new Float32Array(vertexStagingBuffer.getMappedRange()),
-      normals:   new Float32Array(normalStagingBuffer.getMappedRange()),
-      indices:   new Uint32Array(indexStagingBuffer.getMappedRange())
-    });
-
-    vertexStagingBuffer.unmap();
-    normalStagingBuffer.unmap();
-    indexStagingBuffer.unmap();
-
-    const commandEncoder = this.device.createCommandEncoder({});
-    commandEncoder.copyBufferToBuffer(vertexStagingBuffer, 0, this.vertexBuffer, 0, this.vertexBufferSize);
-    commandEncoder.copyBufferToBuffer(normalStagingBuffer, 0, this.normalBuffer, 0, this.vertexBufferSize);
-    commandEncoder.copyBufferToBuffer(indexStagingBuffer, 0, this.indexBuffer, 0, this.indexBufferSize);
-    this.device.queue.submit([commandEncoder.finish()]);
-
-    vertexStagingBuffer.destroy();
-    normalStagingBuffer.destroy();
-    indexStagingBuffer.destroy();
-  }
-}
-
-//
-// Reusing a single staging buffer.
-//
-
-/**
- * This path uses a single set of staging buffers and a single set of vertex/index buffers. Each
- * time the data is updated the staging buffer is immedately re-mapped, and when it's time to update
- * the buffer again the application waits for the mapping to complete before writing the data.
- * This tightly controls the total amount of memory used to update the buffer, but can result in
- * stalls if the data needs to be updated before the staging buffer has finished mapping again.
- * As such this technique is best for buffers that change with moderate frequency, such as every
- * few frames.
- * 
- * Advantages:
- *  - Well bounded memory usage.
- *  - No ongoing creation/destruction overhead.
- *  - Staging buffer re-use means initialization costs are only paid once.
- *  - Data can be written directly into the mapped buffer, avoiding a CPU-side copy in some cases.
- *
- * Disadvantages:
- *  - Need to wait for staging buffer to be mapped each time buffer is updated.
- *  - User agent must zero out the staging buffer the first time it's mapped.
- *  - If data is already in an ArrayBuffer, requires another CPU-side copy.
- *  - Requires a GPU-side copy
- */
-export class MetaballSingleStagingBuffer extends WebGPUMetaballRendererBase {
-  constructor(renderer, volume) {
-    super(renderer, volume);
-
-    this.vertexStagingBuffer = this.device.createBuffer({
-      size: this.vertexBufferSize,
-      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
-      mappedAtCreation: true,
-    });
-
-    this.normalStagingBuffer = this.device.createBuffer({
-      size: this.vertexBufferSize,
-      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
-      mappedAtCreation: true,
-    });
-
-    this.indexStagingBuffer = this.device.createBuffer({
-      size: this.indexBufferSize,
-      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
-      mappedAtCreation: true,
-    });
-
-    this.mappedPromise = Promise.resolve();
-  }
-
-  async update(marchingCubes) {
-    await this.mappedPromise;
-
-    this.indexCount = marchingCubes.generateMesh({
-      positions: new Float32Array(this.vertexStagingBuffer.getMappedRange()),
-      normals:   new Float32Array(this.normalStagingBuffer.getMappedRange()),
-      indices:   new Uint32Array(this.indexStagingBuffer.getMappedRange())
-    });
-
-    this.vertexStagingBuffer.unmap();
-    this.normalStagingBuffer.unmap();
-    this.indexStagingBuffer.unmap();
-
-    const commandEncoder = this.device.createCommandEncoder({});
-    commandEncoder.copyBufferToBuffer(this.vertexStagingBuffer, 0, this.vertexBuffer, 0, this.vertexBufferSize);
-    commandEncoder.copyBufferToBuffer(this.normalStagingBuffer, 0, this.normalBuffer, 0, this.vertexBufferSize);
-    commandEncoder.copyBufferToBuffer(this.indexStagingBuffer, 0, this.indexBuffer, 0, this.indexBufferSize);
-    this.device.queue.submit([commandEncoder.finish()]);
-
-    this.mappedPromise = Promise.all([
-      this.vertexStagingBuffer.mapAsync(GPUMapMode.WRITE),
-      this.normalStagingBuffer.mapAsync(GPUMapMode.WRITE),
-      this.indexStagingBuffer.mapAsync(GPUMapMode.WRITE)
-    ]);
-  }
-}
-
-//
-// Staging buffer ring.
-//
-
-/**
- * This path uses a rotating set of staging buffers and a single set of vertex/index buffers. Each
- * time the data is updated it first checks to see if a previously used staging buffer is already
- * mapped and ready to use, and if so writes the data into that. If not, a new staging buffer is
- * created with mappedAtCreation set to true so that it can immedately be populated. After the data
- * is copied GPU-side the staging buffer is immedately mapped again, and once the mapping is
- * complete it's placed in the queue of buffers which are ready for use. If the buffer data is
- * updated frequently this typically results in a list of 2-3 staging buffers that are cycled
- * through. This technique is best for buffers that change very frequency, such as every frame.
- * 
- * Advantages:
- *  - Limits buffer creation.
- *  - Doesn't wait on previously used buffers to be mapped.
- *  - Staging buffer re-use means initialization costs are only paid once per set.
- *  - Data can be written directly into the mapped buffer, avoiding a CPU-side copy in some cases.
- *
- * Disadvantages:
- *  - Higher complexity than other methods.
- *  - Higher ongoing memory usage.
- *  - User agent must zero out the staging buffers the first time they are mapped.
- *  - If data is already in an ArrayBuffer, requires another CPU-side copy.
- *  - Requires a GPU-side copy
- */
-export class MetaballStagingBufferRing extends WebGPUMetaballRendererBase {
-  constructor(renderer, volume) {
-    super(renderer, volume);
-
-    this.readyBuffers = [];
-  }
-
-  getOrCreateStagingBuffers() {
-    if (this.readyBuffers.length) {
-      return this.readyBuffers.pop();
-    }
-
-    return {
-      vertex: this.device.createBuffer({
-        size: this.vertexBufferSize,
-        usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
-        mappedAtCreation: true,
-      }),
-  
-      normal: this.device.createBuffer({
-        size: this.vertexBufferSize,
-        usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
-        mappedAtCreation: true,
-      }),
-  
-      index: this.device.createBuffer({
-        size: this.indexBufferSize,
-        usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
-        mappedAtCreation: true,
-      }),
-    };
-  }
-
-  async update(marchingCubes) {
-    const stagingBuffers = this.getOrCreateStagingBuffers();
-
-    this.indexCount = marchingCubes.generateMesh({
-      positions: new Float32Array(stagingBuffers.vertex.getMappedRange()),
-      normals:   new Float32Array(stagingBuffers.normal.getMappedRange()),
-      indices:   new Uint32Array(stagingBuffers.index.getMappedRange())
-    });
-
-    stagingBuffers.vertex.unmap();
-    stagingBuffers.normal.unmap();
-    stagingBuffers.index.unmap();
-
-    const commandEncoder = this.device.createCommandEncoder({});
-    commandEncoder.copyBufferToBuffer(stagingBuffers.vertex, 0, this.vertexBuffer, 0, this.vertexBufferSize);
-    commandEncoder.copyBufferToBuffer(stagingBuffers.normal, 0, this.normalBuffer, 0, this.vertexBufferSize);
-    commandEncoder.copyBufferToBuffer(stagingBuffers.index, 0, this.indexBuffer, 0, this.indexBufferSize);
-    this.device.queue.submit([commandEncoder.finish()]);
-
-    Promise.all([
-      stagingBuffers.vertex.mapAsync(GPUMapMode.WRITE),
-      stagingBuffers.normal.mapAsync(GPUMapMode.WRITE),
-      stagingBuffers.index.mapAsync(GPUMapMode.WRITE)
-    ]).then(() => {
-      this.readyBuffers.push(stagingBuffers);
-    });
-  }
-}
-
 /**
  * For certain types of algorithmically generated data, it may be possible to generate the data in
  * a compute shader. This allows the data to be directly populated into the GPU-side buffer with
@@ -502,7 +157,7 @@ export class MetaballStagingBufferRing extends WebGPUMetaballRendererBase {
  *  - May still require copy of external data for use in the shader.
  */
 
-export class MetaballComputeRenderer extends WebGPUMetaballRendererBase {
+export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
   constructor(renderer, volume) {
     super(renderer, volume, false);
 
@@ -517,15 +172,6 @@ export class MetaballComputeRenderer extends WebGPUMetaballRendererBase {
     tablesArray.set(MarchingCubesEdgeTable);
     tablesArray.set(MarchingCubesTriTable, MarchingCubesEdgeTable.length);
     this.tablesBuffer.unmap();
-
-    this.metaballBufferSize = (Uint32Array.BYTES_PER_ELEMENT * 4) + (Float32Array.BYTES_PER_ELEMENT * 8 * MAX_METABALLS);
-    this.metaballArray = new ArrayBuffer(this.metaballBufferSize);
-    this.metaballArrayHeader = new Uint32Array(this.metaballArray, 0, 4);
-    this.metaballArrayBalls = new Float32Array(this.metaballArray, 16);
-    this.metaballBuffer = this.device.createBuffer({
-      size: this.metaballBufferSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
 
     this.volumeElements = volume.width * volume.height * volume.depth;
     this.volumeBufferSize = (Float32Array.BYTES_PER_ELEMENT * 12) +
@@ -560,10 +206,9 @@ export class MetaballComputeRenderer extends WebGPUMetaballRendererBase {
     volumeSize[2] = volume.depth;
 
     // this is threshold
-    volumeFloat32[15] = 40; // Threshold. TODO: Should be dynamic.
-    
-    
-    // volumeFloat32[15] = 0; // Threshold. TODO: Should be dynamic.
+    // volumeFloat32[15] = 40; // Threshold. TODO: Should be dynamic.
+    volumeFloat32[15] = 0; // Threshold. TODO: Should be dynamic.
+
 
     // const yMid = 0.5 * (volume.yMin + volume.yMax);
     // const yScale = volume.yMax - volume.yMin;
@@ -618,7 +263,8 @@ export class MetaballComputeRenderer extends WebGPUMetaballRendererBase {
     // Create compute pipeline that handles the metaball isosurface.
     const metaballModule = this.device.createShaderModule({
       label: 'Metaball Isosurface Compute Shader',
-      code: MetaballFieldComputeSource
+      // code: MetaballFieldComputeSource
+      code: NoiseDensityComputeSource
     });
 
     this.device.createComputePipelineAsync({
@@ -630,11 +276,6 @@ export class MetaballComputeRenderer extends WebGPUMetaballRendererBase {
         layout: this.metaballComputePipeline.getBindGroupLayout(0),
         entries: [{
           binding: 0,
-          resource: {
-            buffer: this.metaballBuffer,
-          },
-        }, {
-          binding: 1,
           resource: {
             buffer: this.volumeBuffer,
           },
@@ -691,21 +332,6 @@ export class MetaballComputeRenderer extends WebGPUMetaballRendererBase {
   }
 
   updateMetaballs(metaballs, marchingCubes) {
-    this.metaballArrayHeader[0] = metaballs.balls.length;
-
-    for (let i = 0; i < metaballs.balls.length; ++i) {
-      const ball = metaballs.balls[i];
-      const offset = i * 8;
-      this.metaballArrayBalls[offset] = ball.position[0];
-      this.metaballArrayBalls[offset+1] = ball.position[1];
-      this.metaballArrayBalls[offset+2] = ball.position[2];
-      this.metaballArrayBalls[offset+3] = ball.radius;
-      this.metaballArrayBalls[offset+4] = ball.strength;
-      this.metaballArrayBalls[offset+5] = ball.subtract;
-    }
-
-    // Update the metaball buffer with the latest metaball values.
-    this.device.queue.writeBuffer(this.metaballBuffer, 0, this.metaballArray);
 
     // Zero out the indirect buffer every time.
     this.device.queue.writeBuffer(this.indirectBuffer, 0, this.indirectArray);
@@ -756,7 +382,7 @@ export class MetaballComputeRenderer extends WebGPUMetaballRendererBase {
   // TODO: DrawIndirect once the buffers are dynamically packed.
 }
 
-export class MetaballComputePointRenderer extends MetaballComputeRenderer {
+export class TerrainComputePointRenderer extends TerrainComputeRenderer {
   constructor(renderer, volume) {
     super(renderer, volume);
 

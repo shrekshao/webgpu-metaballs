@@ -40,6 +40,11 @@ import {
   MetaballComputePointRenderer,
 } from './webgpu-metaball-renderer.js';
 
+import {
+  TerrainComputeRenderer,
+  TerrainComputePointRenderer,
+} from './webgpu-terrain-renderer.js';
+
 const MetaballMethods = {
   writeBuffer: MetaballWriteBuffer,
   newBuffer: MetaballNewBuffer,
@@ -309,11 +314,12 @@ export class WebGPURenderer extends Renderer {
   }
 
   setMetaballMethod(method) {
-    const rendererConstructor = MetaballMethods[method];
-    if (!rendererConstructor) {
-      this.metaballRenderer = null;
-      return;
-    }
+    // const rendererConstructor = MetaballMethods[method];
+    // if (!rendererConstructor) {
+    //   this.metaballRenderer = null;
+    //   return;
+    // }
+    const rendererConstructor = TerrainComputeRenderer;
 
     this.metaballRenderer = new rendererConstructor(this, this.marchingCubes.volume);
     this.metaballsNeedUpdate = true;
