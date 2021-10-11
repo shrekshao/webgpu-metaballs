@@ -104,12 +104,12 @@
         lacunarity: 2.0,
 
         persistence: 0.52,
-        noiseScale: 2.99,
-        noiseWeight: 6.09,
+        noiseScale: 0.5,
+        noiseWeight: 1.0,
         floorOffset: 5.19,
 
         weightMultiplier: 3.61,
-        hardFloor: -2.84,
+        hardFloor: 1.0,
         hardFloorWeight: 3.05,
       };
 
@@ -119,16 +119,16 @@
         // assume terrain renderer
         renderer.metaballRenderer.updateNoiseSettings(noiseSettings);
       });
-      terrain.add(noiseSettings, 'lacunarity', 0, 5).onChange(() => {
+      terrain.add(noiseSettings, 'lacunarity', 1, 5).onChange(() => {
         renderer.metaballRenderer.updateNoiseSettings(noiseSettings);
       });
-      terrain.add(noiseSettings, 'persistence', 0, 5).onChange(() => {
+      terrain.add(noiseSettings, 'persistence', 0, 1.0).onChange(() => {
         renderer.metaballRenderer.updateNoiseSettings(noiseSettings);
       });
-      terrain.add(noiseSettings, 'noiseScale', 0.1, 10).onChange(() => {
+      terrain.add(noiseSettings, 'noiseScale', 0.01, 3).onChange(() => {
         renderer.metaballRenderer.updateNoiseSettings(noiseSettings);
       });
-      terrain.add(noiseSettings, 'noiseWeight', 0, 10).onChange(() => {
+      terrain.add(noiseSettings, 'noiseWeight', 0, 1).onChange(() => {
         renderer.metaballRenderer.updateNoiseSettings(noiseSettings);
       });
       terrain.add(noiseSettings, 'floorOffset', 0, 10).onChange(() => {
@@ -137,7 +137,7 @@
       terrain.add(noiseSettings, 'weightMultiplier', 0, 5).onChange(() => {
         renderer.metaballRenderer.updateNoiseSettings(noiseSettings);
       });
-      terrain.add(noiseSettings, 'hardFloor', -5, 5).onChange(() => {
+      terrain.add(noiseSettings, 'hardFloor', 0.5, 2.5).onChange(() => {
         renderer.metaballRenderer.updateNoiseSettings(noiseSettings);
       });
       terrain.add(noiseSettings, 'hardFloorWeight', 0, 5).onChange(() => {

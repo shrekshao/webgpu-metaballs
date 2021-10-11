@@ -210,6 +210,14 @@ export const MarchingCubesComputeSource = `
     let v7 = valueAt(i7);
 
     var cubeIndex = 0u;
+    // if (v0 > volume.threshold) { cubeIndex = cubeIndex | 1u; }
+    // if (v1 > volume.threshold) { cubeIndex = cubeIndex | 2u; }
+    // if (v2 > volume.threshold) { cubeIndex = cubeIndex | 4u; }
+    // if (v3 > volume.threshold) { cubeIndex = cubeIndex | 8u; }
+    // if (v4 > volume.threshold) { cubeIndex = cubeIndex | 16u; }
+    // if (v5 > volume.threshold) { cubeIndex = cubeIndex | 32u; }
+    // if (v6 > volume.threshold) { cubeIndex = cubeIndex | 64u; }
+    // if (v7 > volume.threshold) { cubeIndex = cubeIndex | 128u; }
     if (v0 < volume.threshold) { cubeIndex = cubeIndex | 1u; }
     if (v1 < volume.threshold) { cubeIndex = cubeIndex | 2u; }
     if (v2 < volume.threshold) { cubeIndex = cubeIndex | 4u; }

@@ -59,6 +59,8 @@ export class MarchingCubes {
     this.volume.depth = Math.floor((this.volume.zMax - this.volume.zMin) / this.volume.zStep) + 1;
     this.volume.values = new Float32Array(this.volume.width * this.volume.height * this.volume.depth);
 
+    console.log(this.volume);
+
     this.valueCache = new Float32Array(8);
     this.normalCache = new Float32Array(8 * 3);
   }

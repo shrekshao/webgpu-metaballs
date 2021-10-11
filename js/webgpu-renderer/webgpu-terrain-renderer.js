@@ -27,6 +27,7 @@ import {
 import {
   NoiseDensityComputeSource,
   NoiseDensityTerrainComputeSource,
+  NewTerrainComputeSource,
 } from './shaders/noise-density.js';
 
 import {
@@ -266,7 +267,8 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
       label: 'Metaball Isosurface Compute Shader',
       // code: MetaballFieldComputeSource
       // code: NoiseDensityComputeSource
-      code: NoiseDensityTerrainComputeSource
+      // code: NoiseDensityTerrainComputeSource
+      code: NewTerrainComputeSource
     });
 
     this.noiseSettings = {
@@ -275,12 +277,12 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
       lacunarity: 2.0,
 
       persistence: 0.52,
-      noiseScale: 2.99,
-      noiseWeight: 6.09,
+      noiseScale: 0.5,
+      noiseWeight: 1.0,
       floorOffset: 5.19,
 
       weightMultiplier: 3.61,
-      hardFloor: -2.84,
+      hardFloor: 1.0,
       hardFloorWeight: 3.05,
     };
 
@@ -318,11 +320,14 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
       configF32[3] = volume.xStep;     // assume xStep, yStep, zStep is same
 
       // offsets x, y, z
-      // const offsetRange = 1000;
-      const offsetRange = 1;
-      configF32[4] = offsetRange * (Math.random() * 2 - 1);
-      configF32[5] = offsetRange * (Math.random() * 2 - 1);
-      configF32[6] = offsetRange * (Math.random() * 2 - 1);
+      const offsetRange = 1000;
+      // // const offsetRange = 1;
+      // configF32[4] = offsetRange * (Math.random() * 2 - 1);
+      // configF32[5] = offsetRange * (Math.random() * 2 - 1);
+      // configF32[6] = offsetRange * (Math.random() * 2 - 1);
+      configF32[4] = 0;
+      configF32[5] = 0;
+      configF32[6] = 0;
 
 
       // worldSize x, y, z
@@ -330,7 +335,8 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
       configF32[9] = volume.yMax - volume.yMin;
       configF32[10] = volume.zMax - volume.zMin;
 
-      console.log(configF32);
+      // console.log(configF32);
+      console.log(volume);
 
       buffer.unmap();
       return buffer;
@@ -436,7 +442,6 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
     configF32[6] = settings.hardFloor;
     configF32[7] = settings.hardFloorWeight;
   }
-
 
   updateNoiseSettings(settings) {
     const b = new ArrayBuffer(Float32Array.BYTES_PER_ELEMENT * 12);

@@ -295,7 +295,8 @@ ${NoiseComputeSource}
     var offsetNoise = 0.0;
     var noise = 0.0;
 
-    var frequency = config.noiseScale / 100.0;
+    // var frequency = config.noiseScale / 100.0;
+    var frequency = config.noiseScale;
     var amplitude = 1.0;
     var weight = 1.0;
     for (var j = 0; j < config.octaves; j = j + 1) {
@@ -322,6 +323,88 @@ ${NoiseComputeSource}
         finalVal = finalVal * (1.0 - edgeWeight) - 100.0 * edgeWeight;
     // }
 
-    volume.values[valueIndex] = finalVal;
+    // volume.values[valueIndex] = finalVal;
+    volume.values[valueIndex] = -finalVal;
+  }
+`;
+
+
+
+export const NewTerrainComputeSource = `
+
+${NoiseComputeSource}
+
+  ${IsosurfaceVolume}
+  [[group(0), binding(0)]] var<storage, read_write> volume : IsosurfaceVolume;
+
+// Noise settings
+
+[[block]] struct TerrainConfig {
+    octaves: i32;
+
+    lacunarity: f32;
+    persistence: f32;
+    noiseScale: f32;
+    noiseWeight: f32;
+
+    floorOffset: f32;
+    weightMultiplier: f32;
+    hardFloor: f32;
+    hardFloorWeight: f32;
+
+    
+    // closeEdges: bool;
+};
+[[group(0), binding(1)]] var<uniform> config : TerrainConfig;
+
+[[block]] struct MeshConfig {
+    // From density.compute
+    offset: vec3<f32>;
+    spacing: f32;
+
+    // 4, 5, 6
+    offsets: vec3<f32>;
+    pad1: f32;
+
+    // 8, 9, 10
+    worldSize: vec3<f32>;
+    pad2: f32;
+};
+[[group(0), binding(2)]] var<uniform> meshConfig : MeshConfig;
+
+
+
+  fn positionAt(index : vec3<u32>) -> vec3<f32> {
+    return volume.min + (volume.step * vec3<f32>(index.xyz));
+  }
+
+  [[stage(compute), workgroup_size(${WORKGROUP_SIZE[0]}, ${WORKGROUP_SIZE[1]}, ${WORKGROUP_SIZE[2]})]]
+  fn computeMain([[builtin(global_invocation_id)]] global_id : vec3<u32>) {
+    // let pos = positionAt(global_id);
+    let pos = positionAt(global_id) + meshConfig.offset;
+    let valueIndex = global_id.x +
+                    (global_id.y * volume.size.x) +
+                    (global_id.z * volume.size.x * volume.size.y);
+    var finalVal = 0.0;
+
+    finalVal = config.hardFloor - pos.y;
+
+    var amplitude = 1.0;
+    var weight = 1.0;
+    var frequency = config.noiseScale;
+    var noise = 0.0;
+    for (var j = 0; j < config.octaves; j = j + 1) {
+
+      
+      noise = noise + amplitude * snoise(pos * frequency);
+      amplitude = amplitude * config.persistence;
+      frequency = frequency * config.lacunarity;
+    }
+
+    finalVal = finalVal + noise * config.noiseWeight;
+    
+
+    // volume.values[valueIndex] = finalVal;
+    volume.values[valueIndex] = -finalVal;
   }
 `;
