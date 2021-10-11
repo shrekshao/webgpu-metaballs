@@ -279,10 +279,10 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
       persistence: 0.52,
       noiseScale: 0.5,
       noiseWeight: 1.0,
-      floorOffset: 5.19,
+      floorOffset: 1.0,
 
       weightMultiplier: 3.61,
-      hardFloor: 1.0,
+      hardFloor: 0.5,
       hardFloorWeight: 3.05,
     };
 

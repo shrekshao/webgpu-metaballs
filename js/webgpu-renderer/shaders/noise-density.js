@@ -387,7 +387,7 @@ ${NoiseComputeSource}
                     (global_id.z * volume.size.x * volume.size.y);
     var finalVal = 0.0;
 
-    finalVal = config.hardFloor - pos.y;
+    finalVal = config.floorOffset - pos.y;
 
     var amplitude = 1.0;
     var weight = 1.0;
@@ -402,6 +402,10 @@ ${NoiseComputeSource}
     }
 
     finalVal = finalVal + noise * config.noiseWeight;
+    if (pos.y < config.hardFloor) {
+      // used for deepest canyon
+      finalVal = finalVal + config.hardFloorWeight;
+    }
     
 
     // volume.values[valueIndex] = finalVal;
