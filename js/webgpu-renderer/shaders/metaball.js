@@ -23,6 +23,7 @@ import {
   MarchingCubesEdgeTable,
   MarchingCubesTriTable,
 } from "../../marching-cubes-tables.js";
+import {NoiseComputeSource} from './noise.js';
 
 export const WORKGROUP_SIZE = [4, 4, 4];
 
@@ -296,7 +297,7 @@ export const MetaballVertexSource = `
 
   struct VertexOutput {
     [[location(0)]] worldPosition : vec3<f32>;
-    [[location(1)]] normal : vec3<f32>;
+    [[interpolate(flat)]][[location(1)]] normal : vec3<f32>;
     [[location(2)]] flow : vec3<f32>;
     [[builtin(position)]] position : vec4<f32>;
   };
@@ -339,6 +340,56 @@ export const MetaballFragmentSource = `
     let tex = xTex * blending.x + yTex * blending.y + zTex * blending.z;
 
     return vec4<f32>(linearTosRGB(tex.xyz), 1.0);
+  }
+`;
+
+export const TerrainFragmentSource = `
+${NoiseComputeSource}
+
+  ${ColorConversions}
+
+  [[group(1), binding(0)]] var baseSampler : sampler;
+  [[group(1), binding(1)]] var baseTexture : texture_2d<f32>;
+
+  struct VertexOutput {
+    [[location(0)]] worldPosition : vec3<f32>;
+    [[interpolate(flat)]][[location(1)]] normal : vec3<f32>;
+    [[location(2)]] flow : vec3<f32>;
+  };
+
+  // [[block]] struct ColorConfig {
+  //     min: vec3<f32>;
+  //     spacing: f32;
+
+  //     // 4, 5, 6
+  //     max: vec3<f32>;
+  //     pad1: f32;
+
+  //     // 8, 9, 10
+  //     worldSize: vec3<f32>;
+  //     pad2: f32;
+  // };
+  // [[group(2), binding(0)]] var<uniform> config : ColorConfig;
+  
+  // ${IsosurfaceVolume}
+  // [[group(2), binding(0)]] var<storage> volume : IsosurfaceVolume;
+
+  [[stage(fragment)]]
+  fn fragmentMain(input : VertexOutput) -> [[location(0)]] vec4<f32> {
+    // let h = smoothStep(config.min.y, config.max.y, input.worldPosition.y);
+    var h = smoothStep(0.5, 2.5, input.worldPosition.y + input.normal.y * 0.01);
+    // let h = input.worldPosition.y - 0.5;
+
+    h = h + snoise(input.worldPosition * 6.9) * 0.04;
+
+    // let color = mix(vec3<f32>(0.0), vec3<f32>(1.0), h);
+    let color = 
+      textureSample(baseTexture, baseSampler, vec2<f32>(h, 0.0)).rgb
+      + vec3<f32>(0.01) * snoise(input.worldPosition * 2.1 + vec3<f32>(5.0));
+
+    let d = min(1.0, dot(-input.normal, normalize(vec3<f32>(0.2, 0.9, 0.2))) + 0.5);
+
+    return vec4<f32>(linearTosRGB(color * d), 1.0);
   }
 `;
 

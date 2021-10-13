@@ -259,9 +259,14 @@ export class Renderer {
     // Override
   }
 
-  setMetaballStyle(style) {
+  setMetaballStyle(style, colorSettings) {
     this.drawMetaballs = true;
     switch(style) {
+      case 'gradient':
+        console.log('color gradient');
+        this.metaballLightColor = [0.9, 0.1, 0.0];
+        this.metaballTexturePath = './media/textures/gradient.png';
+        break;
       case 'lava':
         this.metaballLightColor = [0.9, 0.1, 0.0];
         this.metaballTexturePath = './media/textures/lava.jpg';

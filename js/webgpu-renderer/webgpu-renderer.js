@@ -45,6 +45,17 @@ import {
   TerrainComputePointRenderer,
 } from './webgpu-terrain-renderer.js';
 
+// import Gradient from 'javascript-color-gradient';
+
+// function hexToRgb(hex) {
+//   var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+//   return result ? {
+//     r: parseInt(result[1], 16),
+//     g: parseInt(result[2], 16),
+//     b: parseInt(result[3], 16)
+//   } : null;
+// }
+
 const MetaballMethods = {
   writeBuffer: MetaballWriteBuffer,
   newBuffer: MetaballNewBuffer,
@@ -262,8 +273,10 @@ export class WebGPURenderer extends Renderer {
     }
 
     this.defaultSampler = this.device.createSampler({
-      addressModeU: 'repeat',
-      addressModeV: 'repeat',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+      // addressModeU: 'repeat',
+      // addressModeV: 'repeat',
       magFilter: 'linear',
       minFilter: 'linear',
       mipmapFilter: 'linear',
@@ -273,6 +286,25 @@ export class WebGPURenderer extends Renderer {
 
     this.metaballRenderer = null;
     this.metaballsNeedUpdate = true;
+
+
+
+
+
+    // const h = this.colorGradientTextureSize = 256;
+    // this.colorGradientBuffer = this.device.createBuffer({
+    //   size: h * 1 * 4,
+    //   usage: GPUBufferUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+    //   // mappedAtCreation: true
+    // });
+    // this.colorGradientTexture = this.device.createTexture({
+    //   size: [h, 1, 1],
+    //   format: 'rgba8unorm',
+    //   usage:
+    //     GPUTextureUsage.TEXTURE_BINDING |
+    //     GPUTextureUsage.COPY_DST
+    // });
+
   }
 
   onResize(width, height) {
@@ -327,10 +359,29 @@ export class WebGPURenderer extends Renderer {
     this.metaballMethod = method;
   }
 
-  async setMetaballStyle(style) {
+  async setMetaballStyle(style, colorSettings) {
     super.setMetaballStyle(style);
 
-    const metaballTexture = await this.textureLoader.fromUrl(this.metaballTexturePath, {colorSpace: 'sRGB'});
+    // let texture;
+
+    // if (this.metaballTexturePath == 'gradient') {
+    //   // texture;
+    //   // const t = await this.textureLoader.fromUrl('./media/textures/water.jpg', {colorSpace: 'sRGB'});
+    //   // texture = t.texture;
+
+    //   const data = new Uint8Array(this.colorGradientTextureSize * 4);
+
+    //   this.device.queue.writeBuffer(this.colorGradientBuffer, 0, data);
+    //   this.device.copyBufferToTexture(this.colorGradientBuffer, this.colorGradientTexture);
+
+    // } else {
+    //   const t = await this.textureLoader.fromUrl(this.metaballTexturePath, {colorSpace: 'sRGB'});
+    //   texture = t.texture;
+    // }
+
+    const t = await this.textureLoader.fromUrl(this.metaballTexturePath, {colorSpace: 'sRGB'});
+    const texture = t.texture;
+    
 
     this.bindGroups.metaball = this.device.createBindGroup({
       layout: this.bindGroupLayouts.metaball,
@@ -339,7 +390,7 @@ export class WebGPURenderer extends Renderer {
         resource: this.defaultSampler,
       }, {
         binding: 1,
-        resource: metaballTexture.texture.createView(),
+        resource: texture.createView(),
       }],
     });
   }

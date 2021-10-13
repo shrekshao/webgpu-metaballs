@@ -54,7 +54,6 @@
       import dat from 'dat.gui';
       import Stats from 'stats.js';
 
-      import { Gltf2Loader } from './js/mini-gltf2.js';
       import { OrbitCamera } from './js/camera.js';
 
       import { WebGPURenderer } from './js/webgpu-renderer/webgpu-renderer.js';
@@ -74,29 +73,34 @@
       const appSettings = {
         scene: './media/models/dungeon/dungeon.glb',
         metaballMethod: 'gpuGenerated',
-        renderLightSprites: true,
-        renderEnvironment: true,
-        environmentLights: true,
-        metaballLights: true,
-        metaballStyle: 'lava',
+        renderLightSprites: false,
+        renderEnvironment: false,
+        environmentLights: false,
+        metaballLights: false,
+        // renderLightSprites: true,
+        // renderEnvironment: true,
+        // environmentLights: true,
+        // metaballLights: true,
+        metaballStyle: 'gradient',
+        // metaballStyle: 'lava',
         metaballResolution: 0.075
       };
 
       let gui = new dat.GUI();
 
-      gui.add(appSettings, 'metaballMethod', {
-        'writeBuffer()': 'writeBuffer',
-        'New buffer each frame': 'newBuffer',
-        'New staging buffer each frame': 'newStaging',
-        'Single staging buffer re-mapped each frame': 'singleStaging',
-        'Ring of staging buffers': 'stagingRing',
-        'Compute shader': 'gpuGenerated',
-        'Point Cloud': 'pointCloud'
-      }).onChange(() => {
-        if (renderer) {
-          renderer.setMetaballMethod(appSettings.metaballMethod);
-        }
-      });
+      // gui.add(appSettings, 'metaballMethod', {
+      //   'writeBuffer()': 'writeBuffer',
+      //   'New buffer each frame': 'newBuffer',
+      //   'New staging buffer each frame': 'newStaging',
+      //   'Single staging buffer re-mapped each frame': 'singleStaging',
+      //   'Ring of staging buffers': 'stagingRing',
+      //   'Compute shader': 'gpuGenerated',
+      //   'Point Cloud': 'pointCloud'
+      // }).onChange(() => {
+      //   if (renderer) {
+      //     renderer.setMetaballMethod(appSettings.metaballMethod);
+      //   }
+      // });
 
       const noiseSettings = {
         numOctaves: 6,
@@ -111,6 +115,18 @@
         weightMultiplier: 3.61,
         hardFloor: 0.5,
         hardFloorWeight: 3.05,
+      };
+
+      const worldSettings = {
+        offsetX: 0.0,
+        offsetZ: 0.0,
+
+        worldSize: 2.0,
+      };
+
+      const colorSettings = {
+        c0: '#fff',
+        p0: 0.2,
       };
 
       let terrain = gui.addFolder('Terrain');
@@ -145,50 +161,66 @@
       });
       terrain.open();
 
+      let terrainColor = terrain.addFolder('Color');
+      terrainColor.addColor(colorSettings, 'c0');
+      terrainColor.add(colorSettings, 'p0', 0, 1);
+      // terrainColor.open();
+
+
+      let world = gui.addFolder('World');
+      world.add(worldSettings, 'offsetX', -5, 5).onChange(() => {
+        renderer.metaballRenderer.updateWorldSettings(worldSettings);
+      });
+      world.add(worldSettings, 'offsetZ', -5, 5).onChange(() => {
+        renderer.metaballRenderer.updateWorldSettings(worldSettings);
+      });
+
+
       let rendering = gui.addFolder('Rendering');
 
-      rendering.add(appSettings, 'renderLightSprites').onChange(() => {
-        if (renderer) {
-          renderer.lightManager.render = appSettings.renderLightSprites;
-        }
-      });
+      // rendering.add(appSettings, 'renderLightSprites').onChange(() => {
+      //   if (renderer) {
+      //     renderer.lightManager.render = appSettings.renderLightSprites;
+      //   }
+      // });
 
-      rendering.add(appSettings, 'renderEnvironment').onChange(() => {
-        if (renderer) {
-          renderer.renderEnvironment = appSettings.renderEnvironment;
-        }
-      });
+      // rendering.add(appSettings, 'renderEnvironment').onChange(() => {
+      //   if (renderer) {
+      //     renderer.renderEnvironment = appSettings.renderEnvironment;
+      //   }
+      // });
 
-      rendering.add(appSettings, 'environmentLights').onChange(() => {
-        if (renderer) {
-          renderer.enableLights(appSettings.environmentLights, appSettings.metaballLights);
-        }
-      });
+      // rendering.add(appSettings, 'environmentLights').onChange(() => {
+      //   if (renderer) {
+      //     renderer.enableLights(appSettings.environmentLights, appSettings.metaballLights);
+      //   }
+      // });
 
-      rendering.add(appSettings, 'metaballLights').onChange(() => {
-        if (renderer) {
-          renderer.enableLights(appSettings.environmentLights, appSettings.metaballLights);
-        }
-      });
+      // rendering.add(appSettings, 'metaballLights').onChange(() => {
+      //   if (renderer) {
+      //     renderer.enableLights(appSettings.environmentLights, appSettings.metaballLights);
+      //   }
+      // });
 
       rendering.add(appSettings, 'metaballStyle', {
+        gradient: 'gradient',
         lava: 'lava',
         water: 'water',
         slime: 'slime',
         none: 'none',
       }).onChange(() => {
-        renderer.setMetaballStyle(appSettings.metaballStyle);
+        renderer.setMetaballStyle(appSettings.metaballStyle, colorSettings);
       });
 
-      rendering.add(appSettings, 'metaballResolution', {
-        low: 0.2,
-        medium: 0.1,
-        high: 0.075,
-        ultra: 0.05,
-        "CPU melting": 0.03,
-      }).onChange(() => {
-        renderer.setMetaballStep(appSettings.metaballResolution);
-      });
+      // rendering.add(appSettings, 'metaballResolution', {
+      //   low: 0.2,
+      //   medium: 0.1,
+      //   high: 0.075,
+      //   ultra: 0.05,
+      //   "CPU melting": 0.03,
+      // }).onChange(() => {
+      //   renderer.setMetaballStep(appSettings.metaballResolution);
+      // });
 
       document.body.appendChild(gui.domElement);
 
@@ -215,10 +247,6 @@
 
           renderer.start();
 
-          const gltfLoader = new Gltf2Loader();
-          gltfLoader.loadFromUrl(appSettings.scene).then((gltf) => {
-            renderer.setScene(gltf);
-          });
         } catch (err) {
           console.error('renderer init failed', err);
           renderer.stop();

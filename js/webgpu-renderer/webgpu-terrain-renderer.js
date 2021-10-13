@@ -17,6 +17,7 @@ import { BIND_GROUP, ATTRIB_MAP } from './shaders/common.js';
 import {
   MetaballVertexSource,
   MetaballFragmentSource,
+  TerrainFragmentSource,
   MetaballFieldComputeSource,
   MarchingCubesComputeSource,
   MetaballVertexPointSource,
@@ -72,11 +73,25 @@ class WebGPUTerrainRendererBase {
       });
     }
 
+    // this.volumeStorageBindgroupLayout = this.device.createBindGroupLayout({
+    //   entries: [
+    //     {
+    //       binding: 0,
+    //       visibility: GPUShaderStage.FRAGMENT,
+    //       // visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+    //       buffer: {
+    //         type: 'storage',
+    //       },
+    //     },
+    //   ],
+    // });
+
     this.pipeline = this.device.createRenderPipeline({
       layout: this.device.createPipelineLayout({
         bindGroupLayouts: [
           this.renderer.bindGroupLayouts.frame,
-          this.renderer.bindGroupLayouts.metaball
+          this.renderer.bindGroupLayouts.metaball,
+          // this.volumeStorageBindgroupLayout,
         ]
       }),
       vertex: {
@@ -99,7 +114,7 @@ class WebGPUTerrainRendererBase {
         }]
       },
       fragment: {
-        module: this.device.createShaderModule({ code: MetaballFragmentSource }),
+        module: this.device.createShaderModule({ code: TerrainFragmentSource }),
         entryPoint: "fragmentMain",
         targets: [{
           format: this.renderer.contextFormat,
@@ -133,6 +148,7 @@ class WebGPUTerrainRendererBase {
       passEncoder.setPipeline(this.pipeline);
       passEncoder.setBindGroup(BIND_GROUP.Frame, this.renderer.bindGroups.frame);
       passEncoder.setBindGroup(1, this.renderer.bindGroups.metaball);
+      // passEncoder.setBindGroup(2, this.volume.volumeStorageBindGroup);
       passEncoder.setVertexBuffer(0, this.vertexBuffer);
       passEncoder.setVertexBuffer(1, this.normalBuffer);
       passEncoder.setIndexBuffer(this.indexBuffer, 'uint32');
@@ -370,6 +386,19 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
           },
         ],
       });
+
+
+      // this.volumeStorageBindGroup = this.device.createBindGroup({
+      //   layout: this.volumeStorageBindgroupLayout,
+      //   entries: [
+      //     {
+      //       binding: 0,
+      //       resource: {
+      //         buffer: this.volumeBuffer,
+      //       },
+      //     },
+      //   ],
+      // });
     });
 
     // Create compute pipeline that handles the marching cubes triangulation.
@@ -450,6 +479,33 @@ export class TerrainComputeRenderer extends WebGPUTerrainRendererBase {
 
     this.device.queue.writeBuffer(
       this.configUniformBuffer,
+      0,
+      b
+    );
+  }
+
+
+  fillWorldOffsetBuffer(settings, arrayBuffer) {
+    const configF32 = new Float32Array(arrayBuffer, 0);
+
+    configF32[0] = settings.offsetX;
+    configF32[1] = 0;
+    configF32[2] = settings.offsetZ;
+
+    configF32[3] = this.volume.xStep;
+
+    // configF32[8] = settings.worldSize;
+    // configF32[9] = settings.worldSize;
+    // configF32[10] = settings.worldSize;
+  }
+
+  updateWorldSettings(settings) {
+    const b = new ArrayBuffer(Float32Array.BYTES_PER_ELEMENT * 12);
+    this.worldSettings = settings;  // temp hack
+    this.fillWorldOffsetBuffer(settings, b);
+
+    this.device.queue.writeBuffer(
+      this.offsetsBuffer,
       0,
       b
     );
